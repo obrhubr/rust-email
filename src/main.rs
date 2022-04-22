@@ -1,9 +1,15 @@
+#[macro_use]
+extern crate dotenv_codegen;
+
 use std::{net::{TcpStream}, io::{Read, Write}};
 use native_tls::{TlsConnector, TlsStream};
 use base64::{encode};
 
+extern crate dotenv;
+use dotenv::dotenv;
+
 trait Client {
-    fn read_line(&mut self) -> std::io::Result<String>;
+    fn read_lines(&mut self) -> std::io::Result<String>;
     fn send(&mut self, message: String) -> std::io::Result<()>;
 
     fn send_message(&mut self, hostname: String, to: String, to_name: String, from: String, from_name: String, subject: String, message: String, username: String, password: String) -> std::io::Result<()>;
@@ -14,24 +20,23 @@ struct SMTPClient {
 }
 
 impl Client for SMTPClient {
-    fn read_line(&mut self) -> std::io::Result<String> {
-        let mut newline = true;
+    fn read_lines(&mut self) -> std::io::Result<String> {
         let mut message = String::new();
     
-        while newline {
-            let mut buffer = [0; 1];
-            self.stream.read_exact(&mut buffer)?;
+        loop {
+            let mut buffer = [0; 128];
+            let read_length = self.stream.read(&mut buffer)?;
     
             let character = String::from_utf8_lossy(&buffer[..]);
-            if character == *"\n".to_string() {
-                newline = false;
-            } else {  
-                message += &character;
+            message += &character;
+
+            if read_length < 128 {
+                break;
             }
         }
         
         println!("{}", message);
-        Ok(message)    
+        Ok(message) 
     }
 
     fn send(&mut self, message: String) -> std::io::Result<()> {
@@ -42,25 +47,18 @@ impl Client for SMTPClient {
     }
 
     fn send_message(&mut self, hostname: String, to: String, to_name: String, from: String, from_name: String, subject: String, message: String, username: String, password: String) -> std::io::Result<()> {
-        let _connection_message = self.read_line()?;
+        let _connection_message = self.read_lines()?;
         self.send(format!("EHLO {}\r\n", hostname))?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
-        let _hello_response = self.read_line()?;
+        let _hello_response = self.read_lines()?;
         self.send(format!("AUTH LOGIN {}\r\n", encode(username)))?;
-        let _hello_response = self.read_line()?;
+        let _hello_response = self.read_lines()?;
         self.send(format!("{}\r\n", encode(password)))?;
         self.send(format!("MAIL FROM:<{}>\r\n", from))?;
-        let _from_ok = self.read_line()?;
+        let _from_ok = self.read_lines()?;
         self.send(format!("RCPT TO:<{}>\r\n", to))?;
-        let _to_ok = self.read_line()?;
+        let _to_ok = self.read_lines()?;
         self.send("DATA\r\n".to_string())?;
-        let _data_ending = self.read_line()?;
+        let _data_ending = self.read_lines()?;
 
         // Send Headers
         self.send(format!("From: \"{}\" <{}>\r\n", from_name, from))?;
@@ -71,7 +69,7 @@ impl Client for SMTPClient {
         // Send Point
         self.send("\r\n.\r\n".to_string())?;
 
-        let _message_ok = self.read_line()?;
+        let _message_ok = self.read_lines()?;
         self.send("QUIT\r\n".to_string())?;
 
         Ok(())
@@ -79,6 +77,8 @@ impl Client for SMTPClient {
 }
 
 fn main() -> std::io::Result<()> {
+    dotenv().ok();
+
     let connector = TlsConnector::new().unwrap();
     let stream = TcpStream::connect("smtp.gmail.com:465").unwrap();
     let stream = connector.connect("smtp.gmail.com", stream).unwrap();
@@ -88,14 +88,14 @@ fn main() -> std::io::Result<()> {
 
     client.send_message(
         "smtp.gmail.com".to_string(), 
-        "test@gmail.com".to_string(), 
-        "test".to_string(), 
-        "test@gmail.com".to_string(), 
-        "test".to_string(), 
+        dotenv!("TO").to_string(),
+        dotenv!("TO_NAME").to_string(), 
+        dotenv!("FROM").to_string(), 
+        dotenv!("FROM_NAME").to_string(), 
         "Test Rust Client".to_string(), 
-        "Hey Niklas, es funktioniert".to_string(),
-        "test@gmail.com".to_string(),
-        "test".to_string()
+        "It's working".to_string(),
+        dotenv!("FROM").to_string(),
+        dotenv!("PASSWORD").to_string()
     )?;
 
     client.stream.shutdown().expect("shutdown call failed");
